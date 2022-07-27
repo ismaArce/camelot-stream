@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import os
+import io
 import re
 import random
 import shutil
@@ -35,6 +35,9 @@ from urllib.parse import uses_relative, uses_netloc, uses_params
 _VALID_URLS = set(uses_relative + uses_netloc + uses_params)
 _VALID_URLS.discard("")
 
+class InvalidArguments(Exception):
+    pass
+
 
 # https://github.com/pandas-dev/pandas/blob/master/pandas/io/common.py
 def is_url(url):
@@ -66,8 +69,8 @@ def random_string(length):
     return ret
 
 
-def download_url(url):
-    """Download file from specified URL.
+def get_url_bytes(url):
+    """Get a stream of bytes for url
 
     Parameters
     ----------
@@ -75,22 +78,21 @@ def download_url(url):
 
     Returns
     -------
-    filepath : str or unicode
-        Temporary filepath.
+    file_bytes : io.BytesIO
+        a file-like object that cane be read
 
     """
-    filename = f"{random_string(6)}.pdf"
-    with tempfile.NamedTemporaryFile("wb", delete=False) as f:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        request = Request(url, None, headers)
-        obj = urlopen(request)
-        content_type = obj.info().get_content_type()
-        if content_type != "application/pdf":
-            raise NotImplementedError("File format not supported")
-        f.write(obj.read())
-    filepath = os.path.join(os.path.dirname(f.name), filename)
-    shutil.move(f.name, filepath)
-    return filepath
+    file_bytes = io.BytesIO()
+    file_bytes.name = url
+    headers = {"User-Agent": "Mozilla/5.0"}
+    request = Request(url, data=None, headers=headers)
+    obj = urlopen(request)
+    content_type = obj.info().get_content_type()
+    if content_type != "application/pdf":
+        raise NotImplementedError("File format not supported")
+    file_bytes.write(obj.read())
+    file_bytes.seek(0)
+    return file_bytes
 
 
 stream_kwargs = ["columns", "edge_tol", "row_tol", "column_tol"]
@@ -889,12 +891,20 @@ def get_page_layout(
         rsrcmgr = PDFResourceManager()
         device = PDFPageAggregator(rsrcmgr, laparams=laparams)
         interpreter = PDFPageInterpreter(rsrcmgr, device)
-        for page in PDFPage.create_pages(document):
-            interpreter.process_page(page)
-            layout = device.get_result()
-            width = layout.bbox[2]
-            height = layout.bbox[3]
-            dim = (width, height)
+        # for page in PDFPage.create_pages(document):
+        #     interpreter.process_page(page)
+        #     layout = device.get_result()
+        #     width = layout.bbox[2]
+        #     height = layout.bbox[3]
+        #     dim = (width, height)
+        page = next(PDFPage.create_pages(document), None)
+        if page is None:
+            raise PDFTextExtractionNotAllowed
+        interpreter.process_page(page)
+        layout = device.get_result()
+        width = layout.bbox[2]
+        height = layout.bbox[3]
+        dim = (width, height)
         return layout, dim
 
 
